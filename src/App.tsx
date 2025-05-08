@@ -16,7 +16,13 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  IconButton
+  IconButton,
+  RadioGroup,
+  Radio,
+  FormControlLabel,
+  TextField,
+  FormControl,
+  FormLabel
 } from '@mui/material';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
@@ -76,6 +82,9 @@ function App() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [scanStarted, setScanStarted] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [ruleType, setRuleType] = useState<'auto' | 'custom'>('auto');
+  const [customRule, setCustomRule] = useState('');
+  const [customRuleError, setCustomRuleError] = useState<string | null>(null);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -89,20 +98,62 @@ function App() {
     setError(null);
   };
 
+  const validateCustomRule = (rule: string): boolean => {
+    try {
+      if (!rule.trim()) {
+        setCustomRuleError('Custom rule cannot be empty');
+        return false;
+      }
+      
+      const parsed = JSON.parse(rule);
+      if (!parsed.rules || !Array.isArray(parsed.rules)) {
+        setCustomRuleError('Custom rule must contain a "rules" array');
+        return false;
+      }
+      
+      setCustomRuleError(null);
+      return true;
+    } catch (e) {
+      setCustomRuleError('Invalid JSON format');
+      return false;
+    }
+  };
+
+  const handleCustomRuleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newRule = e.target.value;
+    setCustomRule(newRule);
+    if (newRule) {
+      validateCustomRule(newRule);
+    } else {
+      setCustomRuleError(null);
+    }
+  };
+
   const startScan = async () => {
     if (!uploadedFile) return;
+    
+    if (ruleType === 'custom' && !validateCustomRule(customRule)) {
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     setScanStarted(true);
     const formData = new FormData();
     formData.append('file', uploadedFile);
+    
+    if (ruleType === 'custom' && customRule) {
+      formData.append('custom_rule', customRule);
+    }
+    
     try {
       const response = await fetch(API_UPLOAD_URL, {
         method: 'POST',
         body: formData,
       });
       if (!response.ok) {
-        throw new Error('Failed to scan file');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to scan file');
       }
       const data = await response.json();
       setScanResults(data);
@@ -179,28 +230,17 @@ const classifyVulns = (vulns: Vulnerability[]) => {
   };
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center" color="primary">
-          Code Vulnerability Scanner
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Secure Engine
         </Typography>
-        <Typography variant="h6" component="h2" gutterBottom align="center" color="text.secondary">
-          Upload your code to analyze security vulnerabilities
-        </Typography>
-        <Paper elevation={3} sx={{ width: '100%', mb: 2, position: 'relative', zIndex: 1 }}>
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs
-              value={tabValue}
-              onChange={handleTabChange}
-              indicatorColor="primary"
-              textColor="primary"
-              centered
-              sx={{ '& .MuiTab-root': { minWidth: 100, fontWeight: 'bold' } }}
-            >
-              <Tab label="Upload" />
-              <Tab label="History" />
-            </Tabs>
-          </Box>
+        <Paper sx={{ p: 3 }}>
+          <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
+            <Tab label="New Scan" />
+            <Tab label="Scan History" />
+          </Tabs>
+          
           <TabPanel value={tabValue} index={0}>
             <FileUpload
               getRootProps={getRootProps}
@@ -209,16 +249,59 @@ const classifyVulns = (vulns: Vulnerability[]) => {
               loading={loading}
             />
             {uploadedFile && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-                <Button 
-                  variant="contained" 
-                  color="primary" 
-                  size="large" 
-                  onClick={startScan} 
-                  disabled={loading}
-                >
-                  {loading ? 'Running SAST...' : 'SAST'}
-                </Button>
+              <Box sx={{ mt: 3 }}>
+                <FormControl component="fieldset" sx={{ mb: 3 }}>
+                  <FormLabel component="legend">Scan Rule Type</FormLabel>
+                  <RadioGroup
+                    value={ruleType}
+                    onChange={(e) => setRuleType(e.target.value as 'auto' | 'custom')}
+                  >
+                    <FormControlLabel value="auto" control={<Radio />} label="Default (Auto)" />
+                    <FormControlLabel value="custom" control={<Radio />} label="Custom Rule" />
+                  </RadioGroup>
+                </FormControl>
+                
+                {ruleType === 'custom' && (
+                  <Box sx={{ mb: 3 }}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={6}
+                      label="Custom Semgrep Rule (JSON format)"
+                      value={customRule}
+                      onChange={handleCustomRuleChange}
+                      error={!!customRuleError}
+                      helperText={
+                        customRuleError || 
+                        'Enter your custom Semgrep rule in JSON format. Example:\n' +
+                        '{\n' +
+                        '  "rules": [\n' +
+                        '    {\n' +
+                        '      "id": "custom-rule-1",\n' +
+                        '      "pattern": "eval(...)",\n' +
+                        '      "message": "Avoid using eval()",\n' +
+                        '      "severity": "ERROR",\n' +
+                        '      "languages": ["python"]\n' +
+                        '    }\n' +
+                        '  ]\n' +
+                        '}'
+                      }
+                      sx={{ mb: 1 }}
+                    />
+                  </Box>
+                )}
+                
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <Button 
+                    variant="contained" 
+                    color="primary" 
+                    size="large" 
+                    onClick={startScan} 
+                    disabled={loading || (ruleType === 'custom' && (!customRule || !!customRuleError))}
+                  >
+                    {loading ? 'Running SAST...' : 'SAST'}
+                  </Button>
+                </Box>
               </Box>
             )}
             {error && (
@@ -233,20 +316,19 @@ const classifyVulns = (vulns: Vulnerability[]) => {
                   color="primary"
                   onClick={() => setDialogOpen(true)}
                   startIcon={<VisibilityIcon />}
-                  
                 >
                   View Results
                 </Button>
               </Box>
             )}
           </TabPanel>
+          
           <TabPanel value={tabValue} index={1}>
             <ScanHistory onViewScan={handleViewScan} />
           </TabPanel>
         </Paper>
       </Box>
       
-      {/* Add Dialog for scan results */}
       <Dialog 
         open={dialogOpen} 
         onClose={handleCloseDialog}
