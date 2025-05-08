@@ -13,9 +13,18 @@ import {
   IconButton,
   TablePagination,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from '@mui/material';
 import { format } from 'date-fns';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import DeleteIcon from '@mui/icons-material/Delete';
+import ErrorIcon from '@mui/icons-material/Error';
+import WarningIcon from '@mui/icons-material/Warning';
+import InfoIcon from '@mui/icons-material/Info';
 import axios from 'axios';
 
 interface ScanHistoryProps {
@@ -43,6 +52,8 @@ const ScanHistory: React.FC<ScanHistoryProps> = ({ onViewScan }) => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchHistory();
@@ -75,22 +86,51 @@ const ScanHistory: React.FC<ScanHistoryProps> = ({ onViewScan }) => {
     setPage(0);
   };
 
-  const getSeverityChip = (count: number, severity: string) => {
+  const handleDeleteClick = (scanId: string) => {
+    setSelectedScanId(scanId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedScanId) return;
+
+    try {
+      await axios.delete(`http://localhost:8000/api/v1/scan/scan/${selectedScanId}`);
+      // Refresh the history after deletion
+      fetchHistory();
+    } catch (error: any) {
+      console.error('Error deleting scan:', error);
+      // Show error message to user
+      alert(error.response?.data?.detail || 'Failed to delete scan. Please try again.');
+    } finally {
+      setDeleteDialogOpen(false);
+      setSelectedScanId(null);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setSelectedScanId(null);
+  };
+
+  const getSeverityIcon = (count: number, severity: string) => {
     if (count === 0) return null;
     
-    const colorMap = {
-      ERROR: 'error',
-      WARNING: 'warning',
-      INFO: 'info'
+    const iconMap = {
+      ERROR: <ErrorIcon color="error" />,
+      WARNING: <WarningIcon color="warning" />,
+      INFO: <InfoIcon color="info" />
     };
 
     return (
-      <Chip
-        label={`${count} ${severity}`}
-        color={colorMap[severity as keyof typeof colorMap] as any}
-        size="small"
-        sx={{ mr: 0.5 }}
-      />
+      <Tooltip title={`${count} ${severity}`}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+          {iconMap[severity as keyof typeof iconMap]}
+          <Typography variant="caption" sx={{ ml: 0.5 }}>
+            {count}
+          </Typography>
+        </Box>
+      </Tooltip>
     );
   };
 
@@ -126,10 +166,10 @@ const ScanHistory: React.FC<ScanHistoryProps> = ({ onViewScan }) => {
                   />
                 </TableCell>
                 <TableCell>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap' }}>
-                    {getSeverityChip(scan.severity_count.ERROR, 'ERROR')}
-                    {getSeverityChip(scan.severity_count.WARNING, 'WARNING')}
-                    {getSeverityChip(scan.severity_count.INFO, 'INFO')}
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {getSeverityIcon(scan.severity_count.ERROR, 'ERROR')}
+                    {getSeverityIcon(scan.severity_count.WARNING, 'WARNING')}
+                    {getSeverityIcon(scan.severity_count.INFO, 'INFO')}
                   </Box>
                 </TableCell>
                 <TableCell>
@@ -143,14 +183,25 @@ const ScanHistory: React.FC<ScanHistoryProps> = ({ onViewScan }) => {
                   />
                 </TableCell>
                 <TableCell>
-                  <Tooltip title="View Details">
-                    <IconButton
-                      size="small"
-                      onClick={() => onViewScan(scan.id)}
-                    >
-                      <VisibilityIcon />
-                    </IconButton>
-                  </Tooltip>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        onClick={() => onViewScan(scan.id)}
+                      >
+                        <VisibilityIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete Scan">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteClick(scan.id)}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}
@@ -165,6 +216,25 @@ const ScanHistory: React.FC<ScanHistoryProps> = ({ onViewScan }) => {
         rowsPerPage={rowsPerPage}
         onRowsPerPageChange={handleChangeRowsPerPage}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this scan? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
